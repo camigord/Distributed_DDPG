@@ -55,7 +55,7 @@ def build_summaries():
 # ===========================
 #   Agent Training
 # ===========================
-def train(sess, current_step, opt, env, actor, critic, sv, train_ops, training_vars, replay_buffer, writer):
+def train(sess, current_step, opt, env, actor, critic, train_ops, training_vars, replay_buffer, writer, is_chief):
     noise = UONoise()
     state = env.reset()
 
@@ -67,8 +67,8 @@ def train(sess, current_step, opt, env, actor, critic, sv, train_ops, training_v
         # Added exploration noise
         input_s = np.reshape(state, (1, actor.s_dim))
         a = actor.predict(input_s)
-        if current_step  < opt.max_exploration_steps:
-            p = current_step/opt.max_exploration_steps
+        if current_step  < opt.max_exploration_episodes:
+            p = current_step/opt.max_exploration_episodes
             a = a*p + (1-p)*next(noise)
 
         state2, r, done, info = env.step(a[0])
@@ -112,19 +112,20 @@ def train(sess, current_step, opt, env, actor, critic, sv, train_ops, training_v
         if done:
             break
 
-    summary_str = sess.run(train_ops, feed_dict={
-        training_vars[0]: ep_reward,
-        training_vars[1]: ep_ave_max_q / float(t),
-        training_vars[2]: value_loss / float(t)
-    })
-    writer.add_summary(summary_str, current_step)
-    writer.flush()
+    if is_chief:
+        summary_str = sess.run(train_ops, feed_dict={
+            training_vars[0]: ep_reward,
+            training_vars[1]: ep_ave_max_q / float(t),
+            training_vars[2]: value_loss / float(t)
+        })
+        writer.add_summary(summary_str, current_step)
+        writer.flush()
 
     print('Episode: %d - Iterations: %d - Reward: %f' % (current_step, t, ep_reward))
 
     return ep_reward
 
-def test(sess, current_step, opt, env, actor, critic, sv, valid_ops, valid_vars, writer):
+def test(sess, current_step, opt, env, actor, critic, valid_ops, valid_vars, writer):
     valid_r = 0
     state = env.reset()
 
@@ -168,12 +169,14 @@ def main(_):
             server.join()
         elif FLAGS.job_name == "worker":
             with tf.device(tf.train.replica_device_setter(worker_device="/job:worker/task:%d" % FLAGS.task_index,cluster=cluster)):
+                is_chief = (FLAGS.task_index == 0)
                 # count the number of updates
                 global_step = tf.get_variable('global_step',[],initializer = tf.constant_initializer(0),trainable = False)
                 step_op = global_step.assign(global_step+1)
 
                 env = gym.make(opt.env_name)
-                env = wrappers.Monitor(env,'./tmp/',force=True)
+                if is_chief:
+                    env = wrappers.Monitor(env,'./tmp/',force=True)
 
                 observation_examples = np.array([env.observation_space.sample() for x in range(10000)])
                 scaler = StandardScaler()
@@ -217,37 +220,42 @@ def main(_):
                         print('Model Initialized')
                         print('***********************')
 
-                is_chief = (FLAGS.task_index == 0)
-                sv = tf.train.Supervisor(is_chief=is_chief, global_step=global_step, init_op=init_op, summary_op=None, \
-                                         saver=None, init_fn=restore_model)
+                #sv = tf.train.Supervisor(is_chief=is_chief, global_step=global_step, init_op=init_op, summary_op=None, saver=None, init_fn=restore_model)
 
-                with sv.prepare_or_wait_for_session(server.target) as sess:
+                #with sv.prepare_or_wait_for_session(server.target) as sess:
+                with tf.Session(server.target) as sess:
+                    sess.run(init_op)
+                    restore_model(sess)
+
                     writer = tf.summary.FileWriter(opt.summary_dir, sess.graph)
 
                     stats = []
                     for step in range(opt.max_episodes):
+                        '''
                         if sv.should_stop():
                             break
+                        '''
 
                         current_step = sess.run(global_step)
                         # Train normally
-                        reward = train(sess, current_step, opt, env, actor, critic, sv, train_ops, training_vars, replay_buffer, writer)
+                        reward = train(sess, current_step, opt, env, actor, critic, train_ops, training_vars, replay_buffer, writer, is_chief)
                         stats.append(reward)
 
                         if np.mean(stats[-100:]) > 90 and len(stats) >= 101:
                             print(np.mean(stats[-100:]))
                             print("Solved.")
-                            save_model(sess, saver, opt, global_step)
+                            if is_chief:
+                                save_model(sess, saver, opt, global_step)
                             break
 
                         if is_chief and step % opt.valid_freq == opt.valid_freq-1:
-                            #test_r = test(sess, current_step, opt, env, actor, critic, sv, valid_ops, valid_vars, writer)
+                            #test_r = test(sess, current_step, opt, env, actor, critic, valid_ops, valid_vars, writer)
                             save_model(sess, saver, opt, global_step)
 
                         # Increase global_step
                         sess.run(step_op)
 
-                sv.stop()
+                #sv.stop()
                 print('Done')
 
 

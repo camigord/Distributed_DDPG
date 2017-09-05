@@ -7,7 +7,7 @@ class Parameters():
         # hyperparameters
         self.seed = 1234
 
-        self.max_exploration_steps = 100
+        self.max_exploration_episodes = 20
         self.batch_size       = 256      # batch size during training
         self.rm_size          = 10000    # memory replay maximum size
         self.gamma            = 0.99     # Discount factor
