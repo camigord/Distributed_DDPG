@@ -67,9 +67,12 @@ def train(sess, current_step, opt, env, actor, critic, train_ops, training_vars,
         # Added exploration noise
         input_s = np.reshape(state, (1, actor.s_dim))
         a = actor.predict(input_s)
+        a = actor.predict(input_s) + (1. / (1. + current_step))
+        '''
         if current_step  < opt.max_exploration_episodes:
             p = current_step/opt.max_exploration_episodes
             a = a*p + (1-p)*next(noise)
+        '''
 
         state2, r, done, info = env.step(a[0])
 
@@ -178,17 +181,25 @@ def main(_):
                 if is_chief:
                     env = wrappers.Monitor(env,'./tmp/',force=True)
 
-                observation_examples = np.array([env.observation_space.sample() for x in range(10000)])
-                scaler = StandardScaler()
-                scaler.fit(observation_examples)
+                if opt.env_name == 'MountainCarContinuous-v0':
+                    observation_examples = np.array([env.observation_space.sample() for x in range(10000)])
+                    scaler = StandardScaler()
+                    scaler.fit(observation_examples)
+                else:
+                    scaler = None
 
                 # Initialize replay memory
                 replay_buffer = ReplayBuffer(opt.rm_size, opt.seed)
 
                 state_dim = env.observation_space.shape[0]
                 action_dim = env.action_space.shape[0]
+                if abs(env.action_space.low[0]) == abs(env.action_space.high[0]):
+                    action_scale = abs(env.action_space.high[0])
+                else:
+                    print('Error: Action space in current environment is asymmetric! ')
+                    sys.exit()
 
-                actor = ActorNetwork(state_dim, action_dim, opt.actor_lr, opt.tau, scaler)
+                actor = ActorNetwork(state_dim, action_dim, action_scale, opt.actor_lr, opt.tau, scaler)
                 critic = CriticNetwork(state_dim, action_dim, opt.critic_lr , opt.tau, actor.get_num_trainable_vars(), scaler)
 
                 # Set up summary Ops
@@ -241,7 +252,7 @@ def main(_):
                         reward = train(sess, current_step, opt, env, actor, critic, train_ops, training_vars, replay_buffer, writer, is_chief)
                         stats.append(reward)
 
-                        if np.mean(stats[-100:]) > 90 and len(stats) >= 101:
+                        if np.mean(stats[-100:]) > 950 and len(stats) >= 101:
                             print(np.mean(stats[-100:]))
                             print("Solved.")
                             if is_chief:

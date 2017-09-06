@@ -7,9 +7,9 @@ class Parameters():
         # hyperparameters
         self.seed = 1234
 
-        self.max_exploration_episodes = 20
+        self.max_exploration_episodes = 500
         self.batch_size       = 256      # batch size during training
-        self.rm_size          = 10000    # memory replay maximum size
+        self.rm_size          = 1000000    # memory replay maximum size
         self.gamma            = 0.99     # Discount factor
         self.critic_lr        = 0.001    # Learning rate for critic
         self.actor_lr         = 0.0001   # Learning rate for actor
@@ -24,10 +24,10 @@ class Parameters():
         self.train = True
         self.continue_training=False
 
-        self.env_name         = 'MountainCarContinuous-v0'
+        self.env_name         = 'InvertedPendulum-v1'   # 'MountainCarContinuous-v0'
 
-        self.summary_dir = './results/tboard_ddpg'  # Directory for storing tensorboard summary results
-        self.save_dir = './results/model_ddpg'      # Directory for storing trained model
+        self.summary_dir = './InvertedPendulum/tboard_ddpg'  # Directory for storing tensorboard summary results
+        self.save_dir = './InvertedPendulum/model_ddpg'      # Directory for storing trained model
 
         self.parameter_servers = ["localhost:2222"]
         self.workers = ["localhost:2223"]

@@ -14,12 +14,13 @@ class ActorNetwork(object):
     between -2 and 2
     """
 
-    def __init__(self,  state_dim, action_dim, learning_rate, tau, scaler):
+    def __init__(self,  state_dim, action_dim, action_scale, learning_rate, tau, scaler):
         self.s_dim = state_dim
         self.a_dim = action_dim
         self.learning_rate = learning_rate
         self.tau = tau
         self.scaler = scaler
+        self.action_scale = action_scale
 
         # Actor Network
         self.inputs, self.out = self.create_actor_network()
@@ -50,32 +51,37 @@ class ActorNetwork(object):
     def create_actor_network(self):
         inputs = tflearn.input_data(shape=[None, self.s_dim])
 
-        layer1 = tflearn.fully_connected(inputs, 48, activation='elu', regularizer='L2', weight_decay=0.1)
-        layer2 = tflearn.fully_connected(layer1, 64, activation='elu', regularizer='L2', weight_decay=0.1)
+        layer1 = tflearn.fully_connected(inputs, 128, activation='elu', regularizer='L2', weight_decay=0.1)
+        layer2 = tflearn.fully_connected(layer1, 200, activation='elu', regularizer='L2', weight_decay=0.1)
 
         # Final layer weights are init to Uniform[-3e-3, 3e-3]
         w_init = tflearn.initializations.uniform(minval=-0.003, maxval=0.003)
         out = tflearn.fully_connected(layer2, self.a_dim, activation='tanh', bias=False, weights_init=w_init, regularizer='L2')
 
-        return inputs, out
+        scaled_out = tf.multiply(out, self.action_scale)
+
+        return inputs, scaled_out
+
+    def preprocess_input(self, inputs):
+        if self.scaler != None:
+            return self.scaler.transform(inputs)
+        else:
+            return inputs
 
     def train(self, inputs, a_gradient):
-        scaled_input = self.scaler.transform(inputs)
         self.sess.run(self.optimize, feed_dict={
-            self.inputs: scaled_input,
+            self.inputs: self.preprocess_input(inputs),
             self.action_gradient: a_gradient
         })
 
     def predict(self, inputs):
-        scaled_input = self.scaler.transform(inputs)
         return self.sess.run(self.out, feed_dict={
-            self.inputs: scaled_input
+            self.inputs: self.preprocess_input(inputs)
         })
 
     def predict_target(self, inputs):
-        scaled_input = self.scaler.transform(inputs)
         return self.sess.run(self.target_out, feed_dict={
-            self.target_inputs: scaled_input
+            self.target_inputs: self.preprocess_input(inputs)
         })
 
     def update_target_network(self):
@@ -142,12 +148,12 @@ class CriticNetwork(object):
         inputs = tflearn.input_data(shape=[None, self.s_dim])
         action = tflearn.input_data(shape=[None, self.a_dim])
 
-        net_state = tflearn.fully_connected(inputs, 48, activation='elu', regularizer='L2', weight_decay=0.1)
-        net_action = tflearn.fully_connected(action, 48, activation='elu', regularizer='L2', weight_decay=0.1)
+        net_state = tflearn.fully_connected(inputs, 128, activation='elu', regularizer='L2', weight_decay=0.1)
+        net_action = tflearn.fully_connected(action, 128, activation='elu', regularizer='L2', weight_decay=0.1)
 
         hidden = tf.concat([net_state,net_action],axis=1)
 
-        net = tflearn.fully_connected(hidden, 128, activation='elu', regularizer='L2', weight_decay=0.1)
+        net = tflearn.fully_connected(hidden, 200, activation='elu', regularizer='L2', weight_decay=0.1)
 
         # linear layer connected to 1 output representing Q(s,a)
         # Weights are init to Uniform[-3e-3, 3e-3]
@@ -155,32 +161,34 @@ class CriticNetwork(object):
         out = tflearn.fully_connected(net, 1, weights_init=w_init, regularizer='L2')
         return inputs, action, out
 
+    def preprocess_input(self, inputs):
+        if self.scaler != None:
+            return self.scaler.transform(inputs)
+        else:
+            return inputs
+
     def train(self, inputs, action, predicted_q_value):
-        scaled_input = self.scaler.transform(inputs)
         return self.sess.run([self.out, self.optimize, self.loss], feed_dict={
-            self.inputs: scaled_input,
+            self.inputs: self.preprocess_input(inputs),
             self.action: action,
             self.predicted_q_value: predicted_q_value
         })
 
     def predict(self, inputs, action):
-        scaled_input = self.scaler.transform(inputs)
         return self.sess.run(self.out, feed_dict={
-            self.inputs: scaled_input,
+            self.inputs: self.preprocess_input(inputs),
             self.action: action
         })
 
     def predict_target(self, inputs, action):
-        scaled_input = self.scaler.transform(inputs)
         return self.sess.run(self.target_out, feed_dict={
-            self.target_inputs: scaled_input,
+            self.target_inputs: self.preprocess_input(inputs),
             self.target_action: action
         })
 
     def action_gradients(self, inputs, actions):
-        scaled_input = self.scaler.transform(inputs)
         return self.sess.run(self.action_grads, feed_dict={
-            self.inputs: scaled_input,
+            self.inputs: self.preprocess_input(inputs),
             self.action: actions
         })
 
